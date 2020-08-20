@@ -30,7 +30,7 @@ class CallStackNode():
 			self._module_name = modulestring
 		if (sampleLocation is not None) and (moduleLocation is not None): 
 			self._name = line[sampleLocation.end():moduleLocation.start()-1]
-		# Decode the other shit here
+		# Decode the other stuff here
 		# (Level) (Function Name) (Inclusive Samples) (Exclusive Samples) (Inclusive Samples %) (Exclusive Samples %)	Module Name
 
 	def attach(self, node): 
