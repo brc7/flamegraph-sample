@@ -35,21 +35,16 @@ class CallStackNode():
 		# Returns:
 		# 	stack_depth: The call stack depth.
 		# 	info: A dict of (field, value) describing the stack trace line.
-		tokens = self._quoted_split(line)
-		start_idx = 0
-		for start_idx, token in enumerate(tokens):
-			if token not in self._pretty_print_chars:
-				break
-		stack_depth = start_idx
+
 		# This is hacky, but sample doesn't output pretty-print indentation characters for
 		# the first couple lines in the call graph (for some reason). In this case, we have
 		# to add the whitespace indentation. Sample uses 2 spaces for each line of indentation.
-		prefix_size = next(i for i, j in enumerate(line) if j not in string.whitespace)
-		stack_depth += prefix_size // 2 - 2
+		prefix_chars = string.whitespace + self._pretty_print_chars
+		prefix_size = next(i for i, j in enumerate(line) if j not in prefix_chars)
+		stack_depth = prefix_size // 2 - 2
 		# End dirty hack.
+		tokens = self._quoted_split(line[prefix_size:])
 
-		tokens = tokens[start_idx:]
-		
 		info = defaultdict(str)
 		if not tokens:
 			return None
