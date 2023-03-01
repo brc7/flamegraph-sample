@@ -94,31 +94,6 @@ class CallStackNode():
 				buffer += c
 		return items
 
-	@property
-	def level(self):
-		return self._level
-
-	@property
-	def name(self):
-		return self._name
-
-	@property
-	def inclusive(self): 
-		return self._inclusive_samples
-
-	@property
-	def exclusive(self):
-		self.computeExclusives()
-		return self._exclusive_samples
-
-	@property
-	def parent(self):
-		return self._parent
-
-	@parent.setter
-	def parent(self, parent):
-		self._parent = parent
-
 	def setProfileData(self, line):
 		data = self._parse_line(line)
 		if data is not None:
@@ -127,6 +102,7 @@ class CallStackNode():
 			self._name = info["name"]
 			self._module_name = info["module"]
 			self._inclusive_samples = int(info["inclusive"])
+			self._are_exclusives_computed = False
 
 	def attach(self, node): 
 		self._child_list.append(node)
@@ -161,60 +137,119 @@ class CallStackNode():
 		for child in self._child_list: 
 			child.stackCollapse()
 
+	@property
+	def level(self):
+		return self._level
 
-# class CallStackTree():
-# 	def __init__(self):
+	@level.setter
+	def level(self, value):
+		self._level = value
+
+	@property
+	def name(self):
+		return self._name
+
+	@name.setter
+	def name(self, value):
+		self._name = value
+
+	@property
+	def inclusive(self): 
+		return self._inclusive_samples
+
+	@inclusive.setter
+	def inclusive(self, value): 
+		self._inclusive_samples = value
+
+	@property
+	def exclusive(self):
+		self.computeExclusives()
+		return self._exclusive_samples
+
+	@exclusive.setter
+	def exclusive(self, value): 
+		self._exclusive_samples = value
+
+	@property
+	def parent(self):
+		return self._parent
+
+	@parent.setter
+	def parent(self, parent):
+		self._parent = parent
 
 
-import sys
+class CallStackTree():
+	def __init__(self):
+		self.top_node = CallStackNode()
+		self.current_node = self.top_node
 
-filename = sys.argv[1]
+	def add(self, new_node):
+		if new_node.level > self.current_node.level:
+			# If next node is deeper.
+			if new_node.level == self.current_node.level + 1:
+				# Next node should only ever be 1 deeper than the last.
+				new_node.parent = self.current_node
+				self.current_node.attach(new_node)
+			else:
+				# This shouldn't happen - next node should never be more
+				# than 1 deeper than the last. If this does happen, we
+				# add "fake nodes" in between to fill the gap.
+				while new_node.level > self.current_node.level + 1:
+					# Add a fake node in between.
+					fake_node = CallStackNode(self.current_node)
+					fake_node.level = self.current_node + 1
+					fake_node.name = "UNKNOWN"
+					fake_node.exclusive = 0
+					self.current_node.attach(fake_node)
+					self.current_node = fake_node
+				new_node.parent = self.current_node
+				self.current_node.attach(new_node)
 
-infile = open(filename,'r')
+		elif new_node.level == self.current_node.level:
+			# If next node is at the same depth.
+			if self.current_node.parent is not None:
+				# We aren't at the top of the tree.
+				new_node.parent = self.current_node.parent
+				self.current_node.parent.attach(new_node)
+			else:
+				# We are at the top of the tree.
+				new_node.parent = self.current_node
 
-# Find the start of the call graph output.
-start_text = "Call graph:"
-for line in infile:
-	if start_text in line:
-		break
+		elif new_node.level < self.current_node.level:
+			# if the last node was a lot deeper than this one
+			# This can happen when we're returning out of a deep stack trace 
+			# Solution is to traverse back up until we get to the shared parent
+			while new_node.level < self.current_node.level:
+				self.current_node = self.current_node.parent
+			# We found a sibling with the previous loop, use the shared parent.
+			new_node.parent = self.current_node.parent
+			self.current_node.parent.attach(new_node)
+		self.current_node = new_node
 
-# Parse the call graph.
-top_node = CallStackNode()
-current_node = top_node
-for line in infile:
-	if line.isspace():
-		# The call graph ends with an empty line, so we are done parsing. 
-		break
-	new_node = CallStackNode()
-	new_node.setProfileData(line)
-	if new_node.level > current_node.level:
-		# If next node is deeper.
-		if new_node.level == current_node.level + 1:
-			# Next node should only ever be 1 deeper than the last.
-			new_node.parent = current_node
-			current_node.attach(new_node)
+	def stackCollapse(self):
+		self.top_node.computeExclusives()
+		self.top_node.stackCollapse()
 
-	elif new_node.level == current_node.level:
-		# If next node is at the same depth.
-		if current_node.parent is not None:
-			# We aren't at the top of the tree.
-			new_node.parent = current_node.parent
-			current_node.parent.attach(new_node)
-		else:
-			# We are at the top of the tree.
-			new_node.parent = current_node
 
-	elif new_node.level < current_node.level:
-		# if the last node was a lot deeper than this one
-		# This can happen when we're returning out of a deep stack trace 
-		# Solution is to traverse back up until we get to the shared parent
-		while new_node.level < current_node.level:
-			current_node = current_node.parent
-		# We found a sibling with the previous loop, use the shared parent.
-		new_node.parent = current_node.parent
-		current_node.parent.attach(new_node)
-	current_node = new_node
+if __name__ == '__main__':
+	filename = sys.argv[1]
+	infile = open(filename,'r')
 
-top_node.computeExclusives()
-top_node.stackCollapse()
+	# Find the start of the call graph output.
+	start_text = "Call graph:"
+	for line in infile:
+		if start_text in line:
+			break
 
+	# Parse the call graph.
+	tree = CallStackTree()
+	for line in infile:
+		if line.isspace():
+			# The call graph ends with an empty line, so we are done parsing.
+			break
+		node = CallStackNode()
+		node.setProfileData(line)
+		tree.add(node)
+
+	tree.stackCollapse()
